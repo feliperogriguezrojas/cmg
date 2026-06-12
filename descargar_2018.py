@@ -9,31 +9,70 @@ import time
 # ======================================
 
 ANIO = 2018
-PAUSA = 1  # segundos entre descargas
+PAUSA = 1
 
 BASE_URL = "https://www.coes.org.pe/Portal/browser/download?url="
 
-MESES = {
-    1: "01_ENERO",
-    2: "02_FEBRERO",
-    3: "03_MARZO",
-    4: "04_ABRIL",
-    5: "05_MAYO",
-    6: "06_JUNIO",
-    7: "07_JULIO",
-    8: "08_AGOSTO",
-    9: "09_SETIEMBRE",
-    10: "10_OCTUBRE",
-    11: "11_NOVIEMBRE",
-    12: "12_DICIEMBRE"
+# ======================================
+# PLANTILLAS VERIFICADAS
+# ======================================
+
+PLANTILLAS = {
+
+    # ENERO
+    "01":
+    "Operación/Costos Marginales CP/Revisados/2018/"
+    "01_ENERO/"
+    "Día {dia}/"
+    "CMgCP_Revisión_01/"
+    "CMgCP_{dia}{mes}.xlsx",
+
+    # FEBRERO
+    "02":
+    "Operación/Costos Marginales CP/Revisados/2018/"
+    "02_FEBRERO/"
+    "01_Resultados Costos Marginales CP/"
+    "Día {dia}/"
+    "CMgCP_Revisión_02/"
+    "CMgCP_{dia}{mes}.xlsx",
+
+    # MARZO
+    # MARZO
+    "03":
+    "Operación/Costos Marginales CP/Revisados/2018/"
+    "03_MARZO/"
+    "01_Resultados Costos Marginales CP/"
+    "CMgCP_IEOD/"
+    "Día {dia}/"
+    "CMgCP_{dia}{mes}.xlsx",
+
+    # ABRIL
+    # "04": "",
+
+    # MAYO
+    # "05": "",
+
+    # JUNIO
+    # "06": "",
+
+    # JULIO
+    # "07": "",
+
+    # AGOSTO
+    # "08": "",
+
+    # SETIEMBRE
+    # "09": "",
+
+    # OCTUBRE
+    # "10": "",
+
+    # NOVIEMBRE
+    # "11": "",
+
+    # DICIEMBRE
+    # "12": "",
 }
-
-# ======================================
-# CARPETA DESTINO
-# ======================================
-
-base_dir = Path(f"CMG_{ANIO}")
-base_dir.mkdir(exist_ok=True)
 
 # ======================================
 # SESIÓN
@@ -46,75 +85,122 @@ session.headers.update({
 })
 
 # ======================================
-# DESCARGA
+# CARPETA DESTINO
+# ======================================
+
+base_dir = Path(f"CMG_{ANIO}")
+base_dir.mkdir(exist_ok=True)
+
+# ======================================
+# CONTADORES
 # ======================================
 
 descargados = 0
-fallidos = 0
+existentes = 0
+vacios = 0
+errores = 0
 
-for mes in range(1, 13):
+# ======================================
+# DESCARGA
+# ======================================
 
-    carpeta_mes = base_dir / f"{ANIO}_{mes:02d}"
+for mes in sorted(PLANTILLAS.keys()):
+
+    carpeta_mes = base_dir / f"{ANIO}_{mes}"
     carpeta_mes.mkdir(exist_ok=True)
 
-    dias_mes = calendar.monthrange(ANIO, mes)[1]
+    dias_mes = calendar.monthrange(
+        ANIO,
+        int(mes)
+    )[1]
 
-    print(f"\n========== {MESES[mes]} ==========")
+    print("\n" + "=" * 70)
+    print(f"PROCESANDO MES {mes}")
+    print("=" * 70)
 
     for dia in range(1, dias_mes + 1):
 
         dd = f"{dia:02d}"
-        mm = f"{mes:02d}"
 
-        nombre_salida = f"{ANIO}_{mm}_{dd}.xlsx"
+        nombre_archivo = f"{ANIO}_{mes}_{dd}.xlsx"
 
-        archivo_destino = carpeta_mes / nombre_salida
+        archivo_destino = (
+            carpeta_mes / nombre_archivo
+        )
 
-        if archivo_destino.exists():
-            print(f"[YA EXISTE] {nombre_salida}")
+        # ----------------------------------
+        # SI YA EXISTE Y TIENE DATOS
+        # ----------------------------------
+
+        if (
+            archivo_destino.exists()
+            and archivo_destino.stat().st_size > 5000
+        ):
+
+            existentes += 1
+
+            print(
+                f"[YA EXISTE] "
+                f"{nombre_archivo}"
+            )
+
             continue
 
-        ruta = (
-            f"Operación/Costos Marginales CP/Revisados/"
-            f"{ANIO}/"
-            f"{MESES[mes]}/"
-            f"Día {dd}/"
-            f"CMgCP_Revisión_01/"
-            f"CMgCP_{dd}{mm}.xlsx"
+        # ----------------------------------
+        # CONSTRUIR URL
+        # ----------------------------------
+
+        ruta = PLANTILLAS[mes].format(
+            dia=dd,
+            mes=mes
         )
 
         url = BASE_URL + quote(ruta)
 
         try:
 
-            r = session.get(url, timeout=30)
+            r = session.get(
+                url,
+                timeout=30
+            )
 
-            if r.status_code == 200:
+            tamaño = len(r.content)
 
-                with open(archivo_destino, "wb") as f:
+            print(
+                f"{nombre_archivo} "
+                f"-> {tamaño:,} bytes"
+            )
+
+            if (
+                r.status_code == 200
+                and tamaño > 5000
+            ):
+
+                with open(
+                    archivo_destino,
+                    "wb"
+                ) as f:
+
                     f.write(r.content)
 
                 descargados += 1
 
-                print(f"[OK] {nombre_salida}")
+                print("   ✓ OK")
 
             else:
 
-                fallidos += 1
+                vacios += 1
 
                 print(
-                    f"[NO ENCONTRADO] "
-                    f"{nombre_salida} "
-                    f"({r.status_code})"
+                    "   ✗ Archivo vacío"
                 )
 
         except Exception as e:
 
-            fallidos += 1
+            errores += 1
 
             print(
-                f"[ERROR] "
-                f"{nombre_salida}: {e}"
+                f"   ✗ ERROR: {e}"
             )
 
         time.sleep(PAUSA)
@@ -123,8 +209,11 @@ for mes in range(1, 13):
 # RESUMEN
 # ======================================
 
-print("\n============================")
+print("\n" + "=" * 70)
 print("PROCESO TERMINADO")
-print("============================")
+print("=" * 70)
+
 print(f"Descargados : {descargados}")
-print(f"Fallidos    : {fallidos}")
+print(f"Existentes  : {existentes}")
+print(f"Vacíos      : {vacios}")
+print(f"Errores     : {errores}")
