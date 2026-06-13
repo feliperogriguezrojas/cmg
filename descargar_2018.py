@@ -1,219 +1,268 @@
 import requests
+import zipfile
+import io
 from pathlib import Path
-from urllib.parse import quote
-import calendar
-import time
+from datetime import datetime, timedelta
 
-# ======================================
-# CONFIGURACIÓN
-# ======================================
+# =====================================================
+# CONFIGURACION
+# =====================================================
 
 ANIO = 2018
-PAUSA = 1
+
+MESES = {
+    1: "01_ENERO",
+    2: "02_FEBRERO",
+    3: "03_MARZO",
+    4: "04_ABRIL",
+    5: "05_MAYO",
+    6: "06_JUNIO",
+    7: "07_JULIO",
+    8: "08_AGOSTO",
+    9: "09_SETIEMBRE",
+    10: "10_OCTUBRE",
+    11: "11_NOVIEMBRE",
+    12: "12_DICIEMBRE"
+}
 
 BASE_URL = "https://www.coes.org.pe/Portal/browser/download?url="
 
-# ======================================
-# PLANTILLAS VERIFICADAS
-# ======================================
-
-PLANTILLAS = {
-
-    # ENERO
-    "01":
-    "Operación/Costos Marginales CP/Revisados/2018/"
-    "01_ENERO/"
-    "Día {dia}/"
-    "CMgCP_Revisión_01/"
-    "CMgCP_{dia}{mes}.xlsx",
-
-    # FEBRERO
-    "02":
-    "Operación/Costos Marginales CP/Revisados/2018/"
-    "02_FEBRERO/"
-    "01_Resultados Costos Marginales CP/"
-    "Día {dia}/"
-    "CMgCP_Revisión_02/"
-    "CMgCP_{dia}{mes}.xlsx",
-
-    # MARZO
-    # MARZO
-    "03":
-    "Operación/Costos Marginales CP/Revisados/2018/"
-    "03_MARZO/"
-    "01_Resultados Costos Marginales CP/"
-    "CMgCP_IEOD/"
-    "Día {dia}/"
-    "CMgCP_{dia}{mes}.xlsx",
-
-    # ABRIL
-    # "04": "",
-
-    # MAYO
-    # "05": "",
-
-    # JUNIO
-    # "06": "",
-
-    # JULIO
-    # "07": "",
-
-    # AGOSTO
-    # "08": "",
-
-    # SETIEMBRE
-    # "09": "",
-
-    # OCTUBRE
-    # "10": "",
-
-    # NOVIEMBRE
-    # "11": "",
-
-    # DICIEMBRE
-    # "12": "",
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
 }
 
-# ======================================
-# SESIÓN
-# ======================================
+CARPETA_DESTINO = Path(f"CMG_{ANIO}")
+CARPETA_DESTINO.mkdir(exist_ok=True)
 
-session = requests.Session()
+# =====================================================
+# FECHAS
+# =====================================================
 
-session.headers.update({
-    "User-Agent": "Mozilla/5.0"
-})
+inicio = datetime(ANIO, 1, 1)
+fin = datetime(ANIO, 12, 31)
 
-# ======================================
-# CARPETA DESTINO
-# ======================================
+fecha = inicio
 
-base_dir = Path(f"CMG_{ANIO}")
-base_dir.mkdir(exist_ok=True)
-
-# ======================================
+# =====================================================
 # CONTADORES
-# ======================================
+# =====================================================
 
-descargados = 0
 existentes = 0
-vacios = 0
-errores = 0
+descargados = 0
+redescargados = 0
 
-# ======================================
-# DESCARGA
-# ======================================
+faltantes = []
 
-for mes in sorted(PLANTILLAS.keys()):
+# =====================================================
+# PROCESO
+# =====================================================
 
-    carpeta_mes = base_dir / f"{ANIO}_{mes}"
-    carpeta_mes.mkdir(exist_ok=True)
+while fecha <= fin:
 
-    dias_mes = calendar.monthrange(
-        ANIO,
-        int(mes)
-    )[1]
+    dia = fecha.day
+    mes = fecha.month
 
-    print("\n" + "=" * 70)
-    print(f"PROCESANDO MES {mes}")
-    print("=" * 70)
+    nombre_excel = (
+        f"CMgCP_{ANIO}_{mes:02d}_{dia:02d}.xlsx"
+    )
 
-    for dia in range(1, dias_mes + 1):
+    destino_excel = CARPETA_DESTINO / nombre_excel
 
-        dd = f"{dia:02d}"
+    fecha_txt = fecha.strftime("%Y-%m-%d")
 
-        nombre_archivo = f"{ANIO}_{mes}_{dd}.xlsx"
+    # =================================================
+    # SI YA EXISTE Y TIENE DATOS
+    # =================================================
 
-        archivo_destino = (
-            carpeta_mes / nombre_archivo
-        )
+    if destino_excel.exists():
 
-        # ----------------------------------
-        # SI YA EXISTE Y TIENE DATOS
-        # ----------------------------------
+        tamaño = destino_excel.stat().st_size
 
-        if (
-            archivo_destino.exists()
-            and archivo_destino.stat().st_size > 5000
-        ):
+        if tamaño > 0:
 
             existentes += 1
 
             print(
-                f"[YA EXISTE] "
-                f"{nombre_archivo}"
+                f"{fecha_txt} -> EXISTE "
+                f"({tamaño:,} bytes)"
             )
 
+            fecha += timedelta(days=1)
             continue
 
-        # ----------------------------------
-        # CONSTRUIR URL
-        # ----------------------------------
+        else:
 
-        ruta = PLANTILLAS[mes].format(
-            dia=dd,
-            mes=mes
+            print(
+                f"{fecha_txt} -> "
+                f"0 bytes, redescargando"
+            )
+
+            redescargados += 1
+
+    else:
+
+        print(f"{fecha_txt} -> Descargando")
+
+    # =================================================
+    # URL DEL ZIP
+    # =================================================
+
+    ruta_zip = (
+        f"Post Operación/Reportes/IEOD/"
+        f"{ANIO}/"
+        f"{MESES[mes]}/"
+        f"Día {dia:02d}/"
+        f"Anexo6_CMgCP_{dia:02d}{mes:02d}.zip"
+    )
+
+    url = BASE_URL + requests.utils.quote(ruta_zip)
+
+    try:
+
+        respuesta = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=90
         )
 
-        url = BASE_URL + quote(ruta)
+        if respuesta.status_code != 200:
+
+            print(
+                f"   ✗ HTTP {respuesta.status_code}"
+            )
+
+            faltantes.append(fecha_txt)
+
+            fecha += timedelta(days=1)
+            continue
+
+        if len(respuesta.content) == 0:
+
+            print("   ✗ ZIP vacío")
+
+            faltantes.append(fecha_txt)
+
+            fecha += timedelta(days=1)
+            continue
+
+        # =============================================
+        # ABRIR ZIP
+        # =============================================
 
         try:
 
-            r = session.get(
-                url,
-                timeout=30
-            )
+            with zipfile.ZipFile(
+                io.BytesIO(respuesta.content)
+            ) as z:
 
-            tamaño = len(r.content)
+                excels = [
+                    x for x in z.namelist()
+                    if x.lower().endswith(".xlsx")
+                    or x.lower().endswith(".xls")
+                ]
 
-            print(
-                f"{nombre_archivo} "
-                f"-> {tamaño:,} bytes"
-            )
+                if len(excels) == 0:
 
-            if (
-                r.status_code == 200
-                and tamaño > 5000
-            ):
+                    print(
+                        "   ✗ No hay Excel dentro del ZIP"
+                    )
+
+                    faltantes.append(fecha_txt)
+
+                    fecha += timedelta(days=1)
+                    continue
+
+                excel_zip = excels[0]
+
+                with z.open(excel_zip) as origen:
+
+                    contenido = origen.read()
+
+                if len(contenido) == 0:
+
+                    print(
+                        "   ✗ Excel extraído vacío"
+                    )
+
+                    faltantes.append(fecha_txt)
+
+                    fecha += timedelta(days=1)
+                    continue
 
                 with open(
-                    archivo_destino,
+                    destino_excel,
                     "wb"
-                ) as f:
+                ) as salida:
 
-                    f.write(r.content)
+                    salida.write(contenido)
 
-                descargados += 1
+                tamaño_final = destino_excel.stat().st_size
 
-                print("   ✓ OK")
+                if tamaño_final == 0:
 
-            else:
+                    print(
+                        "   ✗ Excel guardado vacío"
+                    )
 
-                vacios += 1
+                    faltantes.append(fecha_txt)
 
-                print(
-                    "   ✗ Archivo vacío"
-                )
+                else:
 
-        except Exception as e:
+                    descargados += 1
 
-            errores += 1
+                    print(
+                        f"   ✓ {nombre_excel} "
+                        f"({tamaño_final:,} bytes)"
+                    )
 
-            print(
-                f"   ✗ ERROR: {e}"
-            )
+        except zipfile.BadZipFile:
 
-        time.sleep(PAUSA)
+            print("   ✗ ZIP inválido")
 
-# ======================================
+            faltantes.append(fecha_txt)
+
+    except Exception as e:
+
+        print(f"   ✗ {e}")
+
+        faltantes.append(fecha_txt)
+
+    fecha += timedelta(days=1)
+
+# =====================================================
 # RESUMEN
-# ======================================
+# =====================================================
 
-print("\n" + "=" * 70)
-print("PROCESO TERMINADO")
-print("=" * 70)
+print("\n" + "=" * 80)
+print("RESUMEN FINAL")
+print("=" * 80)
 
-print(f"Descargados : {descargados}")
-print(f"Existentes  : {existentes}")
-print(f"Vacíos      : {vacios}")
-print(f"Errores     : {errores}")
+print(f"Existentes     : {existentes}")
+print(f"Descargados    : {descargados}")
+print(f"Redescargados  : {redescargados}")
+print(f"Faltantes      : {len(faltantes)}")
+
+# =====================================================
+# GUARDAR FALTANTES
+# =====================================================
+
+archivo_faltantes = f"faltantes_{ANIO}.txt"
+
+with open(
+    archivo_faltantes,
+    "w",
+    encoding="utf-8"
+) as f:
+
+    for dia in faltantes:
+        f.write(dia + "\n")
+
+print("\nArchivo generado:")
+print(archivo_faltantes)
+
+if faltantes:
+
+    print("\nDIAS NO DESCARGADOS:")
+
+    for dia in faltantes:
+        print(dia)

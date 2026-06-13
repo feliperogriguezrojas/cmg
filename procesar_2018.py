@@ -1,182 +1,42 @@
 from pathlib import Path
-import pandas as pd
-import numpy as np
+from datetime import datetime, timedelta
 
-# =====================================================
-# CONFIGURACION
-# =====================================================
+CARPETA = Path("CMG_2018")
 
-CARPETA_BASE = Path("CMG_2018")
-BARRA_OBJETIVO = "CHILCA500"
+fechas_existentes = set()
 
-resultados = []
+for archivo in CARPETA.rglob("*.xlsx"):
 
-# =====================================================
-# RECORRER MESES
-# =====================================================
-
-for carpeta_mes in sorted(CARPETA_BASE.iterdir()):
-
-    if not carpeta_mes.is_dir():
+    # Ignorar archivos vacíos
+    if archivo.stat().st_size == 0:
         continue
 
-    print("\n" + "=" * 70)
-    print(f"PROCESANDO MES: {carpeta_mes.name}")
-    print("=" * 70)
+    try:
+        # Ajustar según el nombre real de tus archivos
+        fecha = datetime.strptime(archivo.stem, "%Y_%m_%d").date()
+        fechas_existentes.add(fecha)
 
-    archivos_excel = sorted(carpeta_mes.glob("*.xlsx"))
+    except:
+        pass
 
-    print(f"Archivos encontrados: {len(archivos_excel)}")
+inicio = datetime(2018, 1, 1).date()
+fin = datetime(2018, 12, 31).date()
 
-    valores_mes = []
+faltantes = []
 
-    for i, archivo in enumerate(archivos_excel, start=1):
+fecha = inicio
 
-        print(f"\n[{i}/{len(archivos_excel)}]")
-        print(f"Archivo: {archivo.name}")
-        print(f"Ruta: {archivo}")
+while fecha <= fin:
 
-        try:
+    if fecha not in fechas_existentes:
+        faltantes.append(fecha)
 
-            # ==========================================
-            # LEER EXCEL
-            # ==========================================
+    fecha += timedelta(days=1)
 
-            df = pd.read_excel(
-                archivo,
-                sheet_name="Cmg_Barra",
-                header=None,
-                engine="openpyxl"
-            )
+print("\nDIAS FALTANTES")
+print("=" * 60)
 
-            print("✓ Excel leído correctamente")
+for f in faltantes:
+    print(f)
 
-            # ==========================================
-            # BUSCAR BARRA
-            # ==========================================
-
-            encabezados = (
-                df.iloc[2]
-                .astype(str)
-                .str.strip()
-            )
-
-            if BARRA_OBJETIVO not in encabezados.values:
-
-                print(
-                    f"✗ No se encontró "
-                    f"{BARRA_OBJETIVO}"
-                )
-
-                continue
-
-            col_chilca = encabezados[
-                encabezados == BARRA_OBJETIVO
-            ].index[0]
-
-            print(
-                f"✓ Columna encontrada: "
-                f"{col_chilca}"
-            )
-
-            # ==========================================
-            # EXTRAER DATOS
-            # ==========================================
-
-            serie = pd.to_numeric(
-                df.iloc[3:, col_chilca],
-                errors="coerce"
-            ).dropna()
-
-            print(
-                f"✓ Registros válidos: "
-                f"{len(serie)}"
-            )
-
-            valores_mes.extend(
-                serie.tolist()
-            )
-
-        except Exception as e:
-
-            print(
-                f"✗ ERROR EN "
-                f"{archivo.name}"
-            )
-
-            print(type(e).__name__)
-            print(str(e))
-
-    # =================================================
-    # PROMEDIO MENSUAL
-    # =================================================
-
-    if len(valores_mes) == 0:
-
-        print(
-            f"\n⚠ No se encontraron datos "
-            f"para {carpeta_mes.name}"
-        )
-
-        continue
-
-    promedio_mes = np.mean(valores_mes)
-
-    anio = int(
-        carpeta_mes.name.split("_")[0]
-    )
-
-    mes = int(
-        carpeta_mes.name.split("_")[1]
-    )
-
-    resultados.append({
-        "Año": anio,
-        "Mes": mes,
-        "CMg_Promedio_CHILCA500":
-            round(promedio_mes, 4)
-    })
-
-    print(
-        f"\n📊 Promedio mensual "
-        f"{anio}-{mes:02d}: "
-        f"{promedio_mes:.4f}"
-    )
-
-# =====================================================
-# EXPORTAR
-# =====================================================
-
-resultado = pd.DataFrame(resultados)
-
-if len(resultado) > 0:
-
-    resultado = resultado.sort_values(
-        ["Año", "Mes"]
-    )
-
-    nombre_salida = (
-        "CMG_2018_Mensual_CHILCA500.xlsx"
-    )
-
-    resultado.to_excel(
-        nombre_salida,
-        index=False
-    )
-
-    print("\n" + "=" * 70)
-    print("PROCESO TERMINADO")
-    print("=" * 70)
-
-    print(resultado)
-
-    print(
-        f"\nArchivo generado: "
-        f"{nombre_salida}"
-    )
-
-else:
-
-    print(
-        "\n❌ No se generó ningún resultado."
-    )
+print(f"\nTotal faltantes: {len(faltantes)}")
