@@ -1,0 +1,8 @@
+VALIDACION CMG 2018
+==================================================
+
+Total archivos : 365
+Correctos      : 365
+Vacios         : 0
+Corruptos      : 0
+
